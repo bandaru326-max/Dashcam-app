@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>NHAI AI Road Survey Dashcam</title>
+  
+  <!-- PWA & Mobile Web App Meta -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NHAI Dashcam">
+  <meta name="theme-color" content="#0a0f18">
+  <meta name="description" content="Offline mobile-first controller for NHAI AI Road Survey Dashcam on Raspberry Pi 5.">
+  
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top System Header Bar -->
+    <header class="top-header">
+      <div class="header-left">
+        <div class="brand-pill">
+          <span class="nhai-badge">NHAI</span>
+          <span class="device-title" id="deviceName">SurveyCam-01</span>
+        </div>
+      </div>
+      
+      <div class="header-right">
+        <!-- Wi-Fi / Connection Status Pill -->
+        <div class="status-pill status-connected" id="connectionStatusPill">
+          <span class="status-dot"></span>
+          <span class="status-text" id="connectionStatusText">WI-FI DIRECT</span>
+        </div>
+        
+        <!-- Pi Thermal Badge -->
+        <div class="telemetry-badge" title="Pi 5 CPU Temperature" id="headerThermalBadge">
+          <svg class="badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+          </svg>
+          <span id="headerTempText">44.0°C</span>
+        </div>
+
+        <!-- Storage Badge -->
+        <div class="telemetry-badge" title="MicroSD Storage Available" id="headerStorageBadge">
+          <svg class="badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+          <span id="headerStorageText">--%</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Disconnected Offline Alert Banner (shown when connection drops) -->
+    <div class="offline-banner" id="offlineBanner" style="display: none;">
+      <svg class="banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="1" y1="1" x2="23" y2="23"/>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+        <path d="M10.71 5.05A16 16 0 0 1 22.58 9"/>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <line x1="12" y1="20" x2="12.01" y2="20"/>
+      </svg>
+      <div class="banner-content">
+        <strong>DASHCAM DISCONNECTED</strong>
+        <span>Reconnecting to Pi Hotspot (192.168.4.1)... Attempt <span id="reconnectCount">1</span></span>
+      </div>
+    </div>
+
+    <!-- MAIN VIEWS CONTAINER -->
+    <main class="main-content">
+      
+      <!-- ================= 1. LIVE DASHBOARD ================= -->
+      <section class="tab-view active" id="view-live">
+        <!-- Live Camera Viewport -->
+        <div class="camera-viewport-card" id="cameraViewportContainer">
+          <div class="video-container" id="videoContainer">
+            <!-- MJPEG Live Stream -->
+            <img id="liveStreamImg" src="/api/camera/stream" alt="Live Camera Preview" class="stream-img" onerror="handleStreamError(this)" onload="handleStreamLoaded(this)">
+            
+            <!-- Video Overlay Watermark HUD -->
+            <div class="video-hud-overlay">
+              <div class="hud-top">
+                <span class="hud-tag" id="hudHighwayTag">NH-44</span>
+                <span class="hud-tag" id="hudChainageTag">KM 120.000</span>
+                <span class="hud-tag" id="hudSpeedTag">0.0 KM/H</span>
+              </div>
+              <div class="hud-bottom">
+                <span class="hud-sub" id="hudCoordsTag">--° N, --° E</span>
+                <span class="hud-sub" id="hudGpsFixTag">NO FIX</span>
+              </div>
+            </div>
+
+            <!-- Alignment Mode Overlay (Toggleable) -->
+            <div class="alignment-overlay" id="alignmentOverlay" style="display: none;">
+              <!-- Rule of Thirds Lines -->
+              <div class="grid-line horizontal h1"></div>
+              <div class="grid-line horizontal h2"></div>
+              <div class="grid-line vertical v1"></div>
+              <div class="grid-line vertical v2"></div>
+
+              <!-- Horizon Center Reference Line -->
+              <div class="horizon-reference-line">
+                <div class="center-crosshair"></div>
+              </div>
+
+              <!-- Dynamic IMU Roll & Pitch Horizon Level Bubble -->
+              <div class="bubble-level-ring" id="bubbleLevelRing">
+                <div class="bubble-indicator" id="bubbleIndicator"></div>
+                <div class="crosshair-center"></div>
+              </div>
+
+              <!-- Lens FOV / Vanishing Point Indicator -->
+              <div class="fov-guideline" id="fovGuideline">
+                <span class="fov-label">4mm M12 • 76.3° HFOV Horizon</span>
+              </div>
+            </div>
+
+            <!-- Digital Zoom / Focus Peaking Controls -->
+            <div class="viewport-overlay-controls">
+              <div class="zoom-btn-group">
+                <button class="zoom-btn active" data-zoom="1.0" onclick="setZoom(1.0)">1x</button>
+                <button class="zoom-btn" data-zoom="2.0" onclick="setZoom(2.0)">2x</button>
+                <button class="zoom-btn" data-zoom="4.0" onclick="setZoom(4.0)">4x</button>
+              </div>
+
+              <div class="viewport-action-buttons">
+                <button class="tool-icon-btn" id="toggleAlignmentBtn" onclick="toggleAlignmentMode()" title="Camera Alignment & Horizon Level Guides">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="22" y1="12" x2="18" y2="12"/>
+                    <line x1="6" y1="12" x2="2" y2="12"/>
+                    <line x1="12" y1="6" x2="12" y2="2"/>
+                    <line x1="12" y1="22" x2="12" y2="18"/>
+                  </svg>
+                  <span class="tool-btn-label">ALIGN</span>
+                </button>
+                
+                <button class="tool-icon-btn" onclick="toggleFullscreen()" title="Fullscreen Video Preview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recording Status Bar (Clear, Obvious Automotive State) -->
+        <div class="recording-state-card" id="recordingStateCard">
+          <div class="rec-indicator-wrap">
+            <span class="rec-pulse-dot" id="recPulseDot"></span>
+            <span class="rec-status-title" id="recStatusTitle">READY TO RECORD</span>
+          </div>
+          <div class="rec-timer" id="recDurationTimer">00:00:00</div>
+          <div class="rec-segment-tag" id="recSegmentTag" style="display: none;">SEG 01</div>
+        </div>
+
+        <!-- Primary Touch Action Buttons -->
+        <div class="action-button-grid">
+          <!-- Big Start / Stop Button -->
+          <button class="btn-primary-record" id="btnRecordToggle" onclick="handleRecordToggle()">
+            <span class="btn-rec-icon" id="btnRecIcon"></span>
+            <span class="btn-rec-text" id="btnRecText">START RECORDING</span>
+          </button>
+          
+          <!-- Secondary Actions -->
+          <div class="secondary-btn-row">
+            <button class="btn-secondary" onclick="captureSnapshot()" id="btnSnapshot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              <span>SNAPSHOT</span>
+            </button>
+            
+            <button class="btn-secondary btn-lock" onclick="lockActiveRecording()" id="btnLockRecording">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span id="btnLockText">LOCK SEGMENT</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Survey Telemetry Quick Strip -->
+        <div class="telemetry-quick-strip">
+          <div class="strip-item">
+            <span class="strip-label">SPEED</span>
+            <span class="strip-value" id="quickSpeedVal">0.0 <small>km/h</small></span>
+          </div>
+          <div class="strip-item">
+            <span class="strip-label">GPS FIX</span>
+            <span class="strip-value color-green" id="quickGpsVal">3D FIX</span>
+          </div>
+          <div class="strip-item">
+            <span class="strip-label">IMU G-FORCE</span>
+            <span class="strip-value" id="quickGVal">1.00 <small>g</small></span>
+          </div>
+          <div class="strip-item">
+            <span class="strip-label">SURVEY CHAINAGE</span>
+            <span class="strip-value color-blue" id="quickChainageVal">120.000 <small>km</small></span>
+          </div>
+        </div>
+
+        <!-- Simulation / Hardware Physical Button Test Row (Developer & QA) -->
+        <div class="dev-test-row">
+          <span class="dev-test-label">Physical Hardware Button Simulator:</span>
+          <div class="dev-btn-group">
+            <button class="dev-btn" onclick="testHardwareButton('click')" title="Simulates Short Button Press">Single Click (Record/Stop)</button>
+            <button class="dev-btn" onclick="testHardwareButton('long_press')" title="Simulates Button Long Press">Long Press (Lock)</button>
+            <button class="dev-btn" onclick="testHardwareButton('double_click')" title="Simulates Button Double Click">Double Click (Snapshot)</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 2. GALLERY VIEW ================= -->
+      <section class="tab-view" id="view-gallery">
+        <div class="view-header">
+          <h2>SURVEY RECORDINGS</h2>
+          <button class="btn-icon-refresh" onclick="loadGalleryRecordings()" title="Refresh Gallery">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Storage Summary Card -->
+        <div class="storage-summary-card">
+          <div class="storage-summary-text">
+            <span>STORAGE USAGE</span>
+            <span id="storagePercentText">0% Used</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="storageProgressBar" style="width: 0%;"></div>
+          </div>
+          <div class="storage-detail-row">
+            <span id="storageUsedText">0 GB Used</span>
+            <span id="storageFreeText">0 GB Free</span>
+            <span id="storageTotalText">Total: 0 GB</span>
+          </div>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="gallery-filters">
+          <button class="filter-tab active" data-filter="all" onclick="setGalleryFilter('all')">ALL</button>
+          <button class="filter-tab" data-filter="locked" onclick="setGalleryFilter('locked')">🔒 LOCKED ONLY</button>
+          <button class="filter-tab" data-filter="today" onclick="setGalleryFilter('today')">TODAY</button>
+        </div>
+
+        <!-- Recordings List -->
+        <div class="recordings-container" id="recordingsList">
+          <div class="empty-state">Loading recordings...</div>
+        </div>
+      </section>
+
+      <!-- ================= 3. TELEMETRY VIEW ================= -->
+      <section class="tab-view" id="view-telemetry">
+        <div class="view-header">
+          <h2>LIVE TELEMETRY DASHBOARD</h2>
+          <button class="btn-secondary-sm" onclick="calibrateIMU()">CALIBRATE ZERO LEVEL</button>
+        </div>
+
+        <!-- GPS Instrument Card -->
+        <div class="telemetry-card">
+          <div class="card-title-row">
+            <span class="card-title">NEO-M8N GPS SENSOR</span>
+            <span class="gps-fix-badge" id="telemFixBadge">3D FIX</span>
+          </div>
+
+          <div class="telem-grid-2">
+            <!-- Speedometer Display -->
+            <div class="gauge-box">
+              <div class="gauge-number" id="telemSpeedNumber">0.0</div>
+              <div class="gauge-unit">KM / H</div>
+              <div class="gauge-sub" id="telemHeading">Heading: 175° (S)</div>
+            </div>
+
+            <!-- Coordinates & Fix Stats -->
+            <div class="telem-details">
+              <div class="detail-line">
+                <span class="d-label">Latitude:</span>
+                <span class="d-val" id="telemLat">--</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Longitude:</span>
+                <span class="d-val" id="telemLon">--</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Satellites:</span>
+                <span class="d-val" id="telemSats">14 Sats</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Altitude:</span>
+                <span class="d-val" id="telemAlt">169.0 m</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">HDOP Accuracy:</span>
+                <span class="d-val" id="telemHdop">0.85</span>
+              </div>
+              <div class="detail-line highlight">
+                <span class="d-label">Road Chainage:</span>
+                <span class="d-val" id="telemChainage">KM 120.000</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IMU Sensor Card -->
+        <div class="telemetry-card">
+          <div class="card-title-row">
+            <span class="card-title">MPU6050 6-DOF IMU</span>
+            <span class="imu-calib-badge" id="telemImuCalibBadge">CALIBRATED</span>
+          </div>
+
+          <div class="telem-grid-2">
+            <!-- G-Force & Orientation -->
+            <div class="gauge-box">
+              <div class="gauge-number" id="telemTotalG">1.00</div>
+              <div class="gauge-unit">TOTAL G-FORCE</div>
+              <div class="gauge-sub" id="telemRoughness">Roughness: 0.12 (Smooth)</div>
+            </div>
+
+            <!-- Pitch / Roll & 3-Axis Readouts -->
+            <div class="telem-details">
+              <div class="detail-line">
+                <span class="d-label">Pitch (Tilt):</span>
+                <span class="d-val" id="telemPitch">0.0°</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Roll (Horizon):</span>
+                <span class="d-val" id="telemRoll">0.0°</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Accel (X, Y, Z):</span>
+                <span class="d-val" id="telemAccel">0.0, 0.0, 1.0 g</span>
+              </div>
+              <div class="detail-line">
+                <span class="d-label">Gyro (X, Y, Z):</span>
+                <span class="d-val" id="telemGyro">0.0, 0.0, 0.0 °/s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Test Shock Bump Trigger -->
+          <div class="shock-trigger-row">
+            <button class="btn-shock-test" onclick="triggerTestShock()">SIMULATE ROAD POTHOLE / BUMP (AUTO-LOCK TEST)</button>
+          </div>
+        </div>
+
+        <!-- Real-Time Waveform Charts (Mobile Optimized Lightweight HTML5 Canvas) -->
+        <div class="telemetry-card">
+          <span class="card-title">LIVE ACCELEROMETER WAVEFORM (g)</span>
+          <div class="chart-canvas-wrap">
+            <canvas id="accelCanvas" width="400" height="130"></canvas>
+            <div class="canvas-legend">
+              <span class="leg leg-x">X (Longitudinal)</span>
+              <span class="leg leg-y">Y (Lateral)</span>
+              <span class="leg leg-z">Z (Vertical)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="telemetry-card">
+          <span class="card-title">LIVE GYROSCOPE WAVEFORM (deg/s)</span>
+          <div class="chart-canvas-wrap">
+            <canvas id="gyroCanvas" width="400" height="130"></canvas>
+            <div class="canvas-legend">
+              <span class="leg leg-x">X (Pitch rate)</span>
+              <span class="leg leg-y">Y (Roll rate)</span>
+              <span class="leg leg-z">Z (Yaw rate)</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 4. SETTINGS VIEW ================= -->
+      <section class="tab-view" id="view-settings">
+        <div class="view-header">
+          <h2>DASHCAM CONFIGURATION</h2>
+          <button class="btn-primary-sm" onclick="saveAllSettings()">SAVE CONFIG</button>
+        </div>
+
+        <!-- Category A: Camera Settings -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">A. CAMERA SETTINGS (SONY IMX477 HQ)</h3>
+          
+          <div class="form-row">
+            <label for="setResolution">Recording Resolution</label>
+            <select id="setResolution" class="form-select">
+              <option value="1080p">1080p Full HD (1920x1080) - Recommended</option>
+              <option value="1440p">1440p 2K QHD (2560x1440)</option>
+              <option value="4k">4K Ultra HD (3840x2160)</option>
+              <option value="720p">720p HD (1280x720)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="setFramerate">Frame Rate</label>
+            <select id="setFramerate" class="form-select">
+              <option value="30">30 FPS (Standard Survey)</option>
+              <option value="60">60 FPS (High Speed Survey)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="setBitrate">Encoding Bitrate</label>
+            <select id="setBitrate" class="form-select">
+              <option value="10">10 Mbps</option>
+              <option value="15" selected>15 Mbps (Optimal balance)</option>
+              <option value="20">20 Mbps (High detail)</option>
+              <option value="25">25 Mbps (Maximum)</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="setExposure">Exposure Mode</label>
+            <select id="setExposure" class="form-select">
+              <option value="auto">Auto Exposure</option>
+              <option value="sports">Sports (High Shutter Speed for Road Motion)</option>
+              <option value="night">Night Mode</option>
+              <option value="shutter_priority">Shutter Priority (1/100s)</option>
+            </select>
+          </div>
+
+          <div class="form-row info-note">
+            <span class="note-title">Lens Specification:</span>
+            <span>M12 4mm Wide-Angle Lens on Sony IMX477 sensor yields <strong>76.3° Horizontal FOV</strong> (approx 90° Diagonal). Road survey horizon alignment line in live view aligns with survey vanishing point.</span>
+          </div>
+        </div>
+
+        <!-- Category B: NHAI Survey Metadata -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">B. NHAI SURVEY & ROAD METADATA</h3>
+          
+          <div class="form-row">
+            <label for="setProjectName">Survey Project Name</label>
+            <input type="text" id="setProjectName" class="form-input" value="NHAI AI Road Surface Survey">
+          </div>
+
+          <div class="form-row">
+            <label for="setHighwayCode">Highway Code / Number</label>
+            <input type="text" id="setHighwayCode" class="form-input" value="NH-44">
+          </div>
+
+          <div class="form-row">
+            <label for="setSectionPiu">Section / PIU Office</label>
+            <input type="text" id="setSectionPiu" class="form-input" value="PIU North-South Corridor">
+          </div>
+
+          <div class="form-row">
+            <label for="setOperatorName">Field Engineer / Operator</label>
+            <input type="text" id="setOperatorName" class="form-input" value="Field Survey Team 1">
+          </div>
+
+          <div class="form-row">
+            <label for="setVehicleReg">Survey Vehicle Reg. No.</label>
+            <input type="text" id="setVehicleReg" class="form-input" value="IND-NHAI-01">
+          </div>
+
+          <div class="form-row-2">
+            <div>
+              <label for="setStartChainage">Start Chainage (km)</label>
+              <input type="number" step="0.001" id="setStartChainage" class="form-input" value="120.000">
+            </div>
+            <div>
+              <label for="setChainageDir">Survey Direction</label>
+              <select id="setChainageDir" class="form-select">
+                <option value="Ascending">Ascending (+ km)</option>
+                <option value="Descending">Descending (- km)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Category C: Recording & Storage Settings -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">C. RECORDING & STORAGE SETTINGS</h3>
+          
+          <div class="form-row">
+            <label for="setLoopDuration">Loop Segment Duration</label>
+            <select id="setLoopDuration" class="form-select">
+              <option value="60">1 Minute</option>
+              <option value="180" selected>3 Minutes (Recommended)</option>
+              <option value="300">5 Minutes</option>
+              <option value="600">10 Minutes</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="setAutoLockShock">Auto-Lock Impact Threshold (G-Force)</label>
+            <select id="setAutoLockShock" class="form-select">
+              <option value="1.8">1.8 g (Sensitive / Minor potholes)</option>
+              <option value="2.5" selected>2.5 g (Standard road bumps & shock)</option>
+              <option value="3.5">3.5 g (Severe impacts only)</option>
+            </select>
+          </div>
+
+          <div class="form-row checkbox-row">
+            <input type="checkbox" id="setAutoStartBoot">
+            <label for="setAutoStartBoot">Auto-Start Recording on Raspberry Pi Boot</label>
+          </div>
+
+          <div class="form-row checkbox-row">
+            <input type="checkbox" id="setAutoDeleteUnlocked" checked>
+            <label for="setAutoDeleteUnlocked">Circular Buffer: Automatically overwrite oldest unlocked files when SD card is full (Never deletes locked files!)</label>
+          </div>
+        </div>
+
+        <!-- Category D: Hardware & System Controls -->
+        <div class="settings-group">
+          <h3 class="settings-group-title">D. HARDWARE & SYSTEM MANAGEMENT</h3>
+          
+          <div class="form-row">
+            <label>Wi-Fi Access Point</label>
+            <input type="text" class="form-input" value="SSID: PiDashcam-01 | IP: 192.168.4.1" readonly disabled>
+          </div>
+
+          <div class="form-row info-note">
+            <span class="note-title">Physical Controls Guide:</span>
+            <span>• <strong>Single Click:</strong> Start / Stop Recording<br>
+            • <strong>Long Press (2.5s):</strong> Lock Current Recording Segment<br>
+            • <strong>Double Click:</strong> Instant High-Res Snapshot<br>
+            <em>The physical button operates completely independently even if mobile is disconnected.</em></span>
+          </div>
+
+          <div class="system-action-buttons">
+            <button class="btn-system btn-reboot" onclick="confirmSystemAction('reboot')">REBOOT RASPBERRY PI</button>
+            <button class="btn-system btn-shutdown" onclick="confirmSystemAction('shutdown')">SAFE POWER OFF</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- BOTTOM NAVIGATION BAR -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="live" onclick="switchTab('live')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="14.31" y1="8" x2="20.05" y2="17.94"/>
+          <line x1="9.69" y1="8" x2="21.17" y2="8"/>
+          <line x1="7.38" y1="12" x2="13.12" y2="2.06"/>
+          <line x1="9.69" y1="16" x2="3.95" y2="6.06"/>
+          <line x1="14.31" y1="16" x2="2.83" y2="16"/>
+          <line x1="16.62" y1="12" x2="10.88" y2="21.94"/>
+        </svg>
+        <span class="nav-label">LIVE</span>
+      </button>
+
+      <button class="nav-item" data-tab="gallery" onclick="switchTab('gallery')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+          <line x1="7" y1="2" x2="7" y2="22"/>
+          <line x1="17" y1="2" x2="17" y2="22"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <line x1="2" y1="7" x2="7" y2="7"/>
+          <line x1="2" y1="17" x2="7" y2="17"/>
+          <line x1="17" y1="17" x2="22" y2="17"/>
+          <line x1="17" y1="7" x2="22" y2="7"/>
+        </svg>
+        <span class="nav-label">GALLERY</span>
+      </button>
+
+      <button class="nav-item" data-tab="telemetry" onclick="switchTab('telemetry')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span class="nav-label">TELEMETRY</span>
+      </button>
+
+      <button class="nav-item" data-tab="settings" onclick="switchTab('settings')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span class="nav-label">SETTINGS</span>
+      </button>
+    </nav>
+
+    <!-- VIDEO PLAYBACK MODAL -->
+    <div class="modal-backdrop" id="videoModal" style="display: none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <span class="modal-title" id="modalVideoTitle">Recording Playback</span>
+          <button class="modal-close-btn" onclick="closeVideoModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <video id="playbackVideoPlayer" controls playsinline class="modal-video-element"></video>
+          <div class="modal-downloads-row" id="modalDownloadLinks"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONFIRMATION DIALOG MODAL -->
+    <div class="modal-backdrop" id="confirmModal" style="display: none;">
+      <div class="modal-dialog modal-dialog-sm">
+        <div class="modal-header">
+          <span class="modal-title" id="confirmModalTitle">Confirm Action</span>
+        </div>
+        <div class="modal-body">
+          <p id="confirmModalMessage">Are you sure you want to proceed?</p>
+          <div class="modal-action-row">
+            <button class="btn-secondary" onclick="closeConfirmModal()">CANCEL</button>
+            <button class="btn-primary-danger" id="confirmModalActionBtn">CONFIRM</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATION POPUP -->
+    <div class="toast-popup" id="toastPopup">Notification message</div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/app.js"></script>
+  <script src="js/live_view.js"></script>
+  <script src="js/gallery.js"></script>
+  <script src="js/telemetry.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>

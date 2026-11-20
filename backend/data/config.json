@@ -1,0 +1,47 @@
+{
+  "camera": {
+    "resolution": "1080p",
+    "framerate": 30,
+    "bitrate_mbps": 15,
+    "exposure_mode": "auto",
+    "white_balance": "auto",
+    "lens_focal_length_mm": 4.0,
+    "lens_hfov_deg": 76.3,
+    "preview_resolution": "640x360",
+    "preview_framerate": 15,
+    "digital_zoom": 1.0
+  },
+  "survey": {
+    "project_name": "NHAI Road Surface AI Survey",
+    "highway_code": "NH-44",
+    "section_piu": "PIU North-South Corridor",
+    "operator_name": "Field Survey Team 1",
+    "vehicle_registration": "IND-NHAI-01",
+    "chainage_km_start": 120.0,
+    "chainage_direction": "Ascending",
+    "overlay_watermark": true
+  },
+  "storage": {
+    "storage_path": "./recordings",
+    "loop_duration_sec": 180,
+    "auto_start_on_boot": false,
+    "auto_lock_shock_g": 2.5,
+    "low_storage_warning_percent": 15,
+    "auto_delete_old_unlocked": true,
+    "max_storage_usage_percent": 90
+  },
+  "hardware": {
+    "device_name": "NHAI-SurveyCam-01",
+    "firmware_version": "2.4.0-nhai",
+    "hardware_model": "Raspberry Pi 5 (4GB) + Sony IMX477 HQ",
+    "gpio_button_pin": 17,
+    "gpio_led_pin": 22,
+    "gps_port": "/dev/ttyAMA0",
+    "gps_baudrate": 9600,
+    "imu_i2c_bus": 1,
+    "imu_i2c_address": 104,
+    "hotspot_ssid": "PiDashcam-01",
+    "hotspot_ip": "192.168.4.1",
+    "simulated_mode": false
+  }
+}
