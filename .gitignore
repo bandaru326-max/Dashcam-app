@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Data & Recordings (large survey video/csv files)
+recordings/
+*.mp4
+*.avi
+*.mkv
+.thumbnails/
+
+# Local cache & logs
+data/imu_calib.json
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
